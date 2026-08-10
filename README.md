@@ -37,43 +37,7 @@
 - `/law prisoners` — 查看在押人员与剩余刑期
 - `/law pardon <玩家>` — 发布特赦令（需 OP 权限）
 
-## 三、如何打包（构建 jar）★
 
-> 需要一台电脑（Windows / macOS / Linux 均可）。手机上没有成熟的 Forge 构建环境。
-
-### 第 1 步：安装 JDK 17
-1.20.1 必须用 **Java 17**。下载安装 Temurin 17：
-https://adoptium.net/zh-CN/temurin/releases/?version=17
-
-### 第 2 步：下载 Forge 1.20.1 MDK
-打开 https://files.minecraftforge.net ，左侧选 **1.20.1**，点击 **MDK** 下载并解压。
-（MDK 自带 `gradlew` 启动脚本和 `gradle/wrapper/`，本工程没有包含这两个文件，必须从 MDK 获得。）
-
-### 第 3 步：合并本工程
-1. 删除 MDK 里的 `src` 文件夹，把本工程的 `src` 复制进去；
-2. 用本工程的 `build.gradle`、`settings.gradle`、`gradle.properties` 覆盖 MDK 的同名文件。
-
-### 第 4 步：构建
-在 MDK 目录打开命令行：
-
-```bash
-# Windows
-gradlew.bat build
-
-# macOS / Linux
-chmod +x gradlew && ./gradlew build
-```
-
-首次构建会下载 ForgeGradle、Minecraft 官方 jar 与映射表（约几百 MB），请耐心等待。
-构建成功后产物在：
-
-```
-build/libs/ruleoflaw-1.0.0.jar   ← 这就是你的模组
-```
-
-### 第 5 步：安装运行
-把 `ruleoflaw-1.0.0.jar` 放入 **Forge 1.20.1** 客户端或服务端的 `mods` 文件夹即可。
-进入存档后会自动生成基岩监狱。
 
 ### 开发调试（可选）
 ```bash
@@ -83,8 +47,6 @@ build/libs/ruleoflaw-1.0.0.jar   ← 这就是你的模组
 
 ## 四、常见问题
 
-- **构建报 Java 版本错误**：确认 `java -version` 显示 17.x。
-- **下载依赖超时**：给 `gradle.properties` 添加代理，或使用国内镜像。
 - **想改监狱位置/规模**：修改 `PrisonManager.ORIGIN` 与 `CELLS`。
 - **想改最长刑期**：修改 `RuleOfLawMod.MAX_PRISON_DAYS`。
 - **想加新罪名**：在 `CrimeType` 加枚举 → `BehaviorMonitor` 加事件监听 → `CourtSystem.decideAndApply` 加量刑分支。
