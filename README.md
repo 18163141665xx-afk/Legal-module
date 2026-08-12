@@ -1,3 +1,15 @@
+<div align="center">
+
+[![QQ](https://img.shields.io/badge/QQ-3684078503-12B7F5?style=for-the-badge&logo=tencentqq&logoColor=white)](https://wpa.qq.com/msgrd?v=3&uin=3684078503&site=qq&menu=yes)
+[![Minecraft](https://img.shields.io/badge/Minecraft-1.20.1-62B47A?style=for-the-badge&logo=minecraft&logoColor=white)]()
+[![Forge](https://img.shields.io/badge/Forge-1.20.1-orange?style=for-the-badge&logo=curseforge&logoColor=white)]()
+[![Version](https://img.shields.io/badge/Version-1.0.0-4C9AFF?style=for-the-badge)]()
+[![License](https://img.shields.io/badge/License-自定义-9cf?style=for-the-badge)]()
+
+**🌐 语言 / Language：** [🇨🇳 简体中文](README.md) | [🇺🇸 English](README.en.md)
+
+</div>
+
 # 法治服务器（Rule of Law）— Minecraft Forge 1.20.1 模组
 
 监测玩家行为，依据《中华人民共和国刑法》与《宪法》进行游戏内审判与惩罚。
@@ -46,7 +58,6 @@
 - `/law crimes` — 查看全部罪名与法条
 - `/law prisoners` — 查看在押人员与剩余刑期
 - `/law pardon <玩家>` — 发布特赦令（需 OP 权限）
-
 
 
 > 详细教程、常见问题、自定义修改点（改监狱位置、刑期上限、加新罪名）都在本 README 中。
