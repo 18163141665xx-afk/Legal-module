@@ -47,18 +47,7 @@
 - `/law prisoners` — 查看在押人员与剩余刑期
 - `/law pardon <玩家>` — 发布特赦令（需 OP 权限）
 
-## 三、打包方法（需一台电脑，手机无法完成 Forge 构建）
 
-1. **装 JDK 17**：https://adoptium.net 下载 **Temurin 17** 并安装。
-2. **下载 MDK**：https://files.minecraftforge.net → 选 **1.20.1** → 下载 MDK 并解压
-   （工程里没含的，首次构建会自动下载几百 MB 依赖，请保持网络通畅）。
-3. **合并工程**：把本工程的 `src` 目录整体替换 MDK 的 `src`，
-   再用本工程的 `build.gradle`、`settings.gradle`、`gradle.properties` 覆盖 MDK 中的同名文件。
-4. **构建**：在 MDK 目录下执行
-   - Windows：`gradlew.bat build`
-   - Mac/Linux：`./gradlew build`
-5. **取成品**：构建产物为 `build/libs/ruleoflaw-1.0.0.jar`，
-   把它丢进 Forge 1.20.1 服务端/客户端的 `mods` 文件夹即可。
 
 > 详细教程、常见问题、自定义修改点（改监狱位置、刑期上限、加新罪名）都在本 README 中。
 > 注：多人合租基地可能误伤，可在 `BehaviorMonitor.onContainerOpen` 里调大冷却或加白名单。
