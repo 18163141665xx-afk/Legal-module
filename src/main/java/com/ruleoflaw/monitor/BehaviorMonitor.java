@@ -24,6 +24,8 @@ import net.minecraftforge.event.ServerChatEvent;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.EntityTeleportEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
+import net.minecraftforge.event.entity.living.LivingDropsEvent;
+import net.minecraftforge.event.entity.living.LivingExperienceDropEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.player.PlayerContainerEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
@@ -69,6 +71,24 @@ public final class BehaviorMonitor {
 
     /** 每日合法狩猎配额 */
     private static final int DAILY_HUNT_QUOTA = 10;
+
+    // ==================== 全员死亡不掉落 ====================
+
+    /** 玩家死亡不掉落背包物品（含死刑，执行时保留装备） */
+    @SubscribeEvent
+    public static void onPlayerDrops(LivingDropsEvent event) {
+        if (event.getEntity() instanceof ServerPlayer) {
+            event.setCanceled(true);
+        }
+    }
+
+    /** 玩家死亡不掉落经验 */
+    @SubscribeEvent
+    public static void onPlayerExpDrop(LivingExperienceDropEvent event) {
+        if (event.getEntity() instanceof ServerPlayer) {
+            event.setCanceled(true);
+        }
+    }
 
     // ==================== 击杀：杀人罪 / 危害珍稀动物 / 非法狩猎 ====================
 
@@ -251,13 +271,19 @@ public final class BehaviorMonitor {
                 "§6【法治服务器】§f本世界已启用《刑法》《宪法》模组：杀人、纵火、爆炸、盗窃、伤害、"
                         + "滥杀动物、刷屏等行为将被审判入狱（刑期按游戏时间计，最长 10 天）。输入 §e/law §f查看法律。"));
 
-        // 离线期间刑满释放但人还留在监狱里 -> 送回出生点
+        // 已非在押人员但人/重生点仍在监狱内（例如：离线期间刑满释放、被执行死刑后复活）
+        // -> 重置重生点为世界出生点并传送回去，防止玩家被困在基岩监狱里
         PrisonData data = PrisonData.get(player.server.overworld());
-        if (!data.prisoners.containsKey(player.getUUID())
-                && PrisonManager.insidePrison(player.blockPosition())) {
+        BlockPos respawn = player.getRespawnPosition();
+        boolean stuckInPrison = !data.prisoners.containsKey(player.getUUID())
+                && (PrisonManager.insidePrison(player.blockPosition())
+                || (respawn != null && PrisonManager.insidePrison(respawn)));
+        if (stuckInPrison) {
             ServerLevel level = player.server.overworld();
             BlockPos spawn = level.getSharedSpawnPos();
             player.teleportTo(level, spawn.getX() + 0.5, spawn.getY() + 1, spawn.getZ() + 0.5, 0f, 0f);
+            player.setRespawnPosition(level.dimension(), spawn, 0f, true, false);
+            player.sendSystemMessage(Component.literal("§a【监狱】你已结束服刑/获释，重生点已重置为世界出生点。"));
         }
     }
 
@@ -299,4 +325,4 @@ public final class BehaviorMonitor {
     private static boolean isPrisoner(ServerPlayer player) {
         return PrisonData.get(player.server.overworld()).prisoners.containsKey(player.getUUID());
     }
-        }
+}
