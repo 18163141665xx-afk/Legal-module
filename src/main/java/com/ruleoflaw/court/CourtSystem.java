@@ -4,6 +4,7 @@ import com.ruleoflaw.RuleOfLawMod;
 import com.ruleoflaw.crime.CrimeType;
 import com.ruleoflaw.prison.PrisonData;
 import com.ruleoflaw.prison.PrisonManager;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -45,23 +46,27 @@ public final class CourtSystem {
         RandomSource rand = player.getRandom();
         switch (crime) {
             case MURDER_PLAYER: {
+                // 累犯（第 3 次故意杀人）依法判处死刑
+                if (count >= 3) {
+                    deathPenalty(player);
+                    return "死刑（立即执行），剥夺政治权利终身";
+                }
                 int days = range(rand, crime.minDays, crime.maxDays);
-                if (count >= 3) days = crime.maxDays;
                 PrisonManager.imprison(player, days, crime.displayName);
                 mute(player, days, data);
-                fine(player, 5);
-                return "有期徒刑 " + days + " 天，附加剥夺政治权利 " + days + " 天（游戏内禁言），并处罚金（扣除 5 级经验）";
+                fine(player, 6);
+                return "有期徒刑 " + days + " 天，附加剥夺政治权利 " + days + " 天（游戏内禁言），并处罚金（扣除 6 点生命值）";
             }
             case MURDER_VILLAGER: {
                 int days = range(rand, crime.minDays, crime.maxDays);
-                if (count >= 3) days = crime.maxDays;
+                if (count >= 4) days = crime.maxDays;
                 PrisonManager.imprison(player, days, crime.displayName);
                 return "有期徒刑 " + days + " 天";
             }
             case ASSAULT: {
                 if (count == 1) {
-                    fine(player, 3);
-                    return "警告，并处罚金（扣除 3 级经验）";
+                    fine(player, 4);
+                    return "警告，并处罚金（扣除 4 点生命值）";
                 }
                 if (count == 2) {
                     control(player, 2, data);
@@ -75,14 +80,14 @@ public final class CourtSystem {
                 int days = range(rand, crime.minDays, crime.maxDays);
                 if (count >= 3) days = crime.maxDays;
                 PrisonManager.imprison(player, days, crime.displayName);
-                fine(player, 5);
-                return "有期徒刑 " + days + " 天，并处罚金（扣除 5 级经验）";
+                fine(player, 6);
+                return "有期徒刑 " + days + " 天，并处罚金（扣除 6 点生命值）";
             }
             case ILLEGAL_HUNTING: {
                 if (count == 1) {
                     fine(player, 2);
                     control(player, 1, data);
-                    return "罚金（扣除 2 级经验），并处管制 1 天";
+                    return "罚金（扣除 2 点生命值），并处管制 1 天";
                 }
                 PrisonManager.imprison(player, 1, crime.displayName);
                 return "拘役 1 天";
@@ -94,16 +99,20 @@ public final class CourtSystem {
                 return "有期徒刑 " + days + " 天";
             }
             case EXPLOSION: {
+                // 累犯（第 3 次爆炸）依法判处死刑
+                if (count >= 3) {
+                    deathPenalty(player);
+                    return "死刑（立即执行）";
+                }
                 int days = range(rand, crime.minDays, crime.maxDays);
-                if (count >= 3) days = crime.maxDays;
                 PrisonManager.imprison(player, days, crime.displayName);
                 return "有期徒刑 " + days + " 天";
             }
             case THEFT: {
                 if (count == 1) return "警告一次，责令改正";
                 if (count == 2) {
-                    fine(player, 5);
-                    return "罚金（扣除 5 级经验）";
+                    fine(player, 4);
+                    return "罚金（扣除 4 点生命值）";
                 }
                 int days = range(rand, 1, 2);
                 PrisonManager.imprison(player, days, crime.displayName);
@@ -112,8 +121,8 @@ public final class CourtSystem {
             case VANDALISM: {
                 if (count == 1) return "警告一次，责令赔偿损失（请自觉补回方块）";
                 if (count == 2) {
-                    fine(player, 3);
-                    return "罚金（扣除 3 级经验）";
+                    fine(player, 4);
+                    return "罚金（扣除 4 点生命值）";
                 }
                 int days = range(rand, 1, 2);
                 PrisonManager.imprison(player, days, crime.displayName);
@@ -137,9 +146,33 @@ public final class CourtSystem {
         return min + rand.nextInt(max - min + 1);
     }
 
-    /** 罚金：扣除经验等级（不足则扣到 0 级为止） */
-    private static void fine(ServerPlayer player, int levels) {
-        player.giveExperienceLevels(-Math.min(levels, player.experienceLevel));
+    /** 罚金：扣除生命值（点数） */
+    private static void fine(ServerPlayer player, int hp) {
+        player.hurt(player.damageSources().generic(), hp);
+    }
+
+    /**
+     * 死刑（刑法中的死刑立即执行）：
+     * 先清除监狱记录、把重生点重置回世界出生点，再直接击杀玩家。
+     * 玩家复活后会在出生点，不会被困在监狱里。
+     */
+    private static void deathPenalty(ServerPlayer player) {
+        ServerLevel level = player.server.overworld();
+        PrisonData data = PrisonData.get(level);
+
+        // 若恰好在押，先解除服刑记录
+        if (data.prisoners.containsKey(player.getUUID())) {
+            data.prisoners.remove(player.getUUID());
+            data.setDirty();
+        }
+
+        // 重生点重置为世界出生点
+        BlockPos spawn = level.getSharedSpawnPos();
+        player.setRespawnPosition(level.dimension(), spawn, 0f, true, false);
+
+        broadcast(player.server, "§4§l【Minecraft人民法院】对 §e" + player.getGameProfile().getName()
+                + " §4§l执行死刑——立即执行！");
+        player.kill();
     }
 
     /** 剥夺政治权利（游戏内表现为禁言） */
