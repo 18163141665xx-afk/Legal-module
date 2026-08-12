@@ -36,6 +36,14 @@ public class PrisonData extends SavedData {
         public int cell;
         public long releaseTime;
         public String crime;
+        /** 原判释放时刻（减刑下限 = 原判刑期的一半） */
+        public long originalRelease;
+        /** 原判刑期（游戏日） */
+        public int originalDays;
+        /** 连续良好服刑累计 tick（每满 1 个游戏日减刑 1 天） */
+        public long goodTicks;
+        /** 越狱次数（>=2 取消减刑资格） */
+        public int escapes;
 
         public Prisoner() {
         }
@@ -44,6 +52,8 @@ public class PrisonData extends SavedData {
             this.cell = cell;
             this.releaseTime = releaseTime;
             this.crime = crime;
+            this.originalRelease = releaseTime;
+            this.originalDays = 0;
         }
     }
 
@@ -59,8 +69,13 @@ public class PrisonData extends SavedData {
         ListTag list = tag.getList("prisoners", Tag.TAG_COMPOUND);
         for (int i = 0; i < list.size(); i++) {
             CompoundTag t = list.getCompound(i);
-            data.prisoners.put(t.getUUID("uuid"),
-                    new Prisoner(t.getInt("cell"), t.getLong("release"), t.getString("crime")));
+            Prisoner p = new Prisoner(t.getInt("cell"), t.getLong("release"), t.getString("crime"));
+            // 旧存档兼容：无原判记录则视为不可减刑（下限 = 当前释放时刻）
+            p.originalRelease = t.contains("origRel") ? t.getLong("origRel") : p.releaseTime;
+            p.originalDays = t.getInt("origDays");
+            p.goodTicks = t.getLong("goodTicks");
+            p.escapes = t.getInt("escapes");
+            data.prisoners.put(t.getUUID("uuid"), p);
         }
 
         loadTimeMap(tag.getCompound("muted"), data.mutedUntil);
@@ -95,6 +110,10 @@ public class PrisonData extends SavedData {
             t.putInt("cell", e.getValue().cell);
             t.putLong("release", e.getValue().releaseTime);
             t.putString("crime", e.getValue().crime);
+            t.putLong("origRel", e.getValue().originalRelease);
+            t.putInt("origDays", e.getValue().originalDays);
+            t.putLong("goodTicks", e.getValue().goodTicks);
+            t.putInt("escapes", e.getValue().escapes);
             list.add(t);
         }
         tag.put("prisoners", list);

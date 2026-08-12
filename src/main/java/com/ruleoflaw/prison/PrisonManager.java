@@ -9,14 +9,19 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.LanternBlock;
+import net.minecraft.world.level.block.entity.ChestBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BedPart;
 import net.minecraft.world.phys.AABB;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -35,6 +40,9 @@ public final class PrisonManager {
     private static final int WIDTH_X = CELLS * 5 + 1; // 41
     private static final int DEPTH_Z = 7;
     private static final int HEIGHT = 7;
+
+    /** 越狱加刑冷却：30 秒内只加一次刑，防止反复触发刷刑期 */
+    private static final Map<UUID, Long> ESCAPE_CD = new HashMap<>();
 
     /**
      * 每秒（20 tick）由 BehaviorMonitor 调用一次：
@@ -56,19 +64,57 @@ public final class PrisonManager {
             release(level, uuid, false);
         }
 
-        // 2) 防越狱：在押人员不在自己牢房范围内 -> 押回
+        // 2) 防越狱 + 悔改减刑：离开牢房押回加刑；老实待在牢房每满 1 个游戏日减刑 1 天
         for (Map.Entry<UUID, PrisonData.Prisoner> e : data.prisoners.entrySet()) {
             ServerPlayer p = server.getPlayerList().getPlayer(e.getKey());
             if (p == null) continue;
+            PrisonData.Prisoner rec = e.getValue();
             boolean escaped = p.level().dimension() != Level.OVERWORLD
-                    || !cellBounds(e.getValue().cell).contains(p.position());
+                    || !cellBounds(rec.cell).contains(p.position());
             if (escaped) {
-                BlockPos pos = cellSpawn(e.getValue().cell);
+                BlockPos pos = cellSpawn(rec.cell);
                 p.teleportTo(level, pos.getX() + 0.5, pos.getY(), pos.getZ() + 0.5, 0f, 0f);
-                double remainDays = (e.getValue().releaseTime - now) / (double) RuleOfLawMod.TICKS_PER_DAY;
+
+                // 越狱记录：次数 +1、良好表现清零；越狱 2 次起取消减刑资格
+                rec.escapes++;
+                rec.goodTicks = 0;
+
+                // 越狱未遂：加刑 1 个游戏日（30 秒冷却，总刑期仍封顶 10 个游戏日）
+                long last = ESCAPE_CD.getOrDefault(p.getUUID(), 0L);
+                boolean added = false;
+                if (now - last >= 600) {
+                    ESCAPE_CD.put(p.getUUID(), now);
+                    long cap = now + (long) RuleOfLawMod.MAX_PRISON_DAYS * RuleOfLawMod.TICKS_PER_DAY;
+                    if (rec.releaseTime < cap) {
+                        rec.releaseTime = Math.min(rec.releaseTime + RuleOfLawMod.TICKS_PER_DAY, cap);
+                        added = true;
+                    }
+                }
+                data.setDirty();
+
+                double remainDays = (rec.releaseTime - now) / (double) RuleOfLawMod.TICKS_PER_DAY;
                 p.sendSystemMessage(Component.literal("§c【狱警】越狱未遂！你已被押回 "
-                        + (e.getValue().cell + 1) + " 号牢房。剩余刑期约 "
-                        + String.format("%.1f", Math.max(0, remainDays)) + " 天。"));
+                        + (rec.cell + 1) + " 号牢房" + (added ? "，刑期增加 1 天。" : "。")
+                        + (rec.escapes >= 2 ? "§4越狱两次，取消减刑资格！" : "§e良好表现清零！")
+                        + "§c剩余刑期约 " + String.format("%.1f", Math.max(0, remainDays)) + " 天。"));
+            } else if (rec.escapes < 2) {
+                // 悔改减刑：老实待在牢房，每满 1 个游戏日减刑 1 天（不低于原判一半）
+                rec.goodTicks += 20;
+                if (rec.goodTicks >= RuleOfLawMod.TICKS_PER_DAY) {
+                    rec.goodTicks -= RuleOfLawMod.TICKS_PER_DAY;
+                    long minRelease = rec.originalRelease
+                            - (rec.originalDays / 2) * RuleOfLawMod.TICKS_PER_DAY;
+                    if (rec.releaseTime - RuleOfLawMod.TICKS_PER_DAY >= minRelease
+                            && rec.releaseTime - RuleOfLawMod.TICKS_PER_DAY > now) {
+                        rec.releaseTime -= RuleOfLawMod.TICKS_PER_DAY;
+                        p.sendSystemMessage(Component.literal("§a【狱警】表现良好，悔改显著，依法减刑 1 天！剩余刑期约 "
+                                + String.format("%.1f", (rec.releaseTime - now)
+                                / (double) RuleOfLawMod.TICKS_PER_DAY) + " 天。"));
+                    } else {
+                        p.sendSystemMessage(Component.literal("§7【狱警】已减至最低刑期（原判一半），继续好好改造。"));
+                    }
+                }
+                data.setDirty();
             }
         }
 
@@ -144,11 +190,26 @@ public final class PrisonManager {
             level.setBlock(foot.north(), Blocks.RED_BED.defaultBlockState()
                     .setValue(BedBlock.FACING, Direction.NORTH).setValue(BedBlock.PART, BedPart.HEAD), 3);
 
+            // 补给箱：牢饭（面包 x16 / 苹果 x8 / 熟牛排 x4）
+            BlockPos chestPos = new BlockPos(startX + 2, ORIGIN.getY() + 1, ORIGIN.getZ() + 1);
+            level.setBlock(chestPos, Blocks.CHEST.defaultBlockState(), 3);
+            if (level.getBlockEntity(chestPos) instanceof ChestBlockEntity chest) {
+                chest.setItem(0, new ItemStack(Items.BREAD, 16));
+                chest.setItem(1, new ItemStack(Items.APPLE, 8));
+                chest.setItem(2, new ItemStack(Items.COOKED_BEEF, 4));
+            }
+
             // 牢房与走廊的荧石照明
             level.setBlock(new BlockPos(startX + 1, ORIGIN.getY() + HEIGHT - 2, ORIGIN.getZ() + 2),
                     Blocks.GLOWSTONE.defaultBlockState(), 3);
             level.setBlock(new BlockPos(startX + 1, ORIGIN.getY() + HEIGHT - 2, ORIGIN.getZ() + 5),
                     Blocks.GLOWSTONE.defaultBlockState(), 3);
+
+            // 额外照明：地板火把 + 天花悬挂灯笼，保证牢房明亮
+            level.setBlock(new BlockPos(startX + 2, ORIGIN.getY() + 1, ORIGIN.getZ() + 3),
+                    Blocks.TORCH.defaultBlockState(), 3);
+            level.setBlock(new BlockPos(startX + 1, ORIGIN.getY() + HEIGHT - 2, ORIGIN.getZ() + 1),
+                    Blocks.LANTERN.defaultBlockState().setValue(LanternBlock.HANGING, true), 3);
         }
 
         // 强制加载监狱覆盖的所有区块，防止犯人掉线/区块卸载导致逻辑失效
@@ -175,7 +236,10 @@ public final class PrisonManager {
 
         int cell = findFreeCell(data);
         long release = level.getGameTime() + (long) days * RuleOfLawMod.TICKS_PER_DAY;
-        data.prisoners.put(player.getUUID(), new PrisonData.Prisoner(cell, release, crimeName));
+        PrisonData.Prisoner rec = new PrisonData.Prisoner(cell, release, crimeName);
+        rec.originalRelease = release; // 原判释放时刻（减刑下限 = 原判一半）
+        rec.originalDays = days;       // 原判刑期（游戏日）
+        data.prisoners.put(player.getUUID(), rec);
         data.setDirty();
 
         BlockPos pos = cellSpawn(cell);
@@ -189,6 +253,7 @@ public final class PrisonManager {
     public static void release(ServerLevel level, UUID uuid, boolean pardoned) {
         PrisonData data = PrisonData.get(level);
         PrisonData.Prisoner rec = data.prisoners.remove(uuid);
+        ESCAPE_CD.remove(uuid);
         data.setDirty();
         if (rec == null) return;
 
@@ -238,4 +303,4 @@ public final class PrisonManager {
                 && pos.getZ() >= ORIGIN.getZ() - 1 && pos.getZ() <= ORIGIN.getZ() + DEPTH_Z
                 && pos.getY() >= ORIGIN.getY() - 1 && pos.getY() <= ORIGIN.getY() + HEIGHT;
     }
-              }
+}
